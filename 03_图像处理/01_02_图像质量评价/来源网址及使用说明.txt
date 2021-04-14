@@ -1,0 +1,3 @@
+https://mp.weixin.qq.com/s?src=11&timestamp=1615532367&ver=2941&signature=yqyA-CuzE4fPA*x31OgNG3PKgjei*GCMcrZTAhdRBFIZN14RJ7dkkVfewr1SNnybaO4-E0mzC4742Z1GUbIPVUT-18e4*zqLnvzle*7GXsbvUVbpb4j6Xft9TLrpuQbT&new=1
+
+https://github.com/idealo/image-quality-assessment
