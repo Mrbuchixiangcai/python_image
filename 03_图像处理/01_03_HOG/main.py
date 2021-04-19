@@ -355,7 +355,7 @@ cv2.waitKey(0)
 * * 本次实验中我们采用的参数设置是：2*2细胞／区间、8*8像素／细胞、8个直方图通道,步长为1。则一块的特征数为2*2*8。
 ***********************/
 """
-
+"""
 import sys
 import dlib
 import cv2
@@ -379,7 +379,7 @@ f = "image_1.jpg"
 # /***********************
 # * * part1 这里是Grayscale灰度
 # ***********************/
-img = cv2.imread(f, cv2.IMREAD_COLOR)
+img = cv2.imread(f, cv2.IMREAD_COLOR)   # 读取图片，格式为灰度
 cv2.imshow("IMREAD_COLOR", img)
 
 img = cv2.imread(f, cv2.IMREAD_GRAYSCALE)
@@ -497,14 +497,178 @@ k = cv2.waitKey(0)
 cv2.destroyAllWindows()
 
 cv2.waitKey(0)
-
+"""
 
 # ******************************************************************************************************** #
 
 """
 /***********************
 * * Sixth Part
-* * code6：这是老版本，不用
+* * code6：代码封装
+***********************/
+"""
+
+import sys
+import dlib
+import cv2
+import math
+import matplotlib.pyplot as plt
+import numpy as np
+
+...
+# /***********************
+# * * matplotilib.pyplot解释
+# * * 是一个有命令风格的函数集合，它看起来和MATLAB很相似。每一个pyplot函数都使一副图像做出些许改变，例如创建一幅图，在图中
+# * * 创建一个绘图区域，在绘图区域中添加一条线等等。在matplotlib.pyplot中，各种状态通过函数调用保存起来，以便于可以随时跟
+# * * 踪像当前图像和绘图区域这样的东西。绘图函数是直接作用于当前axes（matplotlib中的专有名词，图形中组成部分，不是数学中的
+# * * 坐标系。）
+# ***********************/
+...
+
+# /***********************
+# * * part2 HOG封装成类
+# ***********************/
+class hog_descriptor():
+    # /***********************
+    # * * 初始化
+    # ***********************/
+    def __init__(self, img, cell_size=8, bin_size=8):
+        self.img = img
+        self.img = np.sqrt(img / np.max(img))   # Gamma校正
+        self.img = img * 255                    # 之前代码里面没有这个乘以255
+        self.cell_size = cell_size
+        self.bin_size = bin_size
+        self.angle_unit = int(360 / self.bin_size)   # angle_unit个方向块
+        assert type(self.bin_size) == int, "bin_size should be integer,"
+        assert type(self.cell_size) == int, "cell_size should be integer,"
+        assert type(self.angle_unit) == int, "bin_size should be divisible by 360"
+
+    def extract(self):
+        # /***********************
+        # * * part 为每个细胞单元构建梯度方向直方图
+        # ***********************/
+        height, width = self.img.shape  # 读取长宽
+        gradient_magnitude, gradient_angle = self.global_gradient()
+        gradient_magnitude = abs(gradient_magnitude)
+        cell_gradient_vector = np.zeros((int(height / self.cell_size), int(width / self.cell_size), self.bin_size)) # 细胞梯度向量
+        for i in range(cell_gradient_vector.shape[0]):
+            for j in range(cell_gradient_vector.shape[1]):
+                cell_magnitude = gradient_magnitude[i * self.cell_size:(i + 1) * self.cell_size,
+                                 j * self.cell_size:(j + 1) * self.cell_size]
+                cell_angle = gradient_angle[i * self.cell_size:(i + 1) * self.cell_size,
+                             j * self.cell_size:(j + 1) * self.cell_size]
+                # print (cell_angle.max())
+
+                cell_gradient_vector[i][j] = self.cell_gradient(cell_magnitude, cell_angle)
+
+        hog_image = self.render_gradient(np.zeros([height, width]), cell_gradient_vector)
+
+        # /***********************
+        # * * part 统计Block的梯度信息
+        # ***********************/
+        hog_vector = []
+        for i in range(cell_gradient_vector.shape[0] - 1):
+            for j in range(cell_gradient_vector.shape[1] - 1):
+                block_vector = []
+                block_vector.extend(cell_gradient_vector[i][j])
+            block_vector.extend(cell_gradient_vector[i][j + 1])
+            block_vector.extend(cell_gradient_vector[i + 1][j])
+            block_vector.extend(cell_gradient_vector[i + 1][j + 1])
+            mag = lambda vector: math.sqrt(sum(i ** 2 for i in vector))
+            magnitude = mag(block_vector)
+            if magnitude != 0:
+                normalize = lambda block_vector, magnitude: [element / magnitude for element in block_vector]
+                block_vector = normalize(block_vector, magnitude)
+            hog_vector.append(block_vector)
+        return hog_vector, hog_image
+
+    # /***********************
+    # * * part 求梯度和角度
+    # ***********************/
+    def global_gradient(self):
+        gradient_values_x = cv2.Sobel(self.img, cv2.CV_64F, 1, 0, ksize=5)
+        gradient_values_y = cv2.Sobel(self.img, cv2.CV_64F, 0, 1, ksize=5)
+        gradient_magnitude = cv2.addWeighted(gradient_values_x, 0.5, gradient_values_y, 0.5, 0)  # 求梯度
+        gradient_angle = cv2.phase(gradient_values_x, gradient_values_y, angleInDegrees=True)  # 求角度
+        return gradient_magnitude, gradient_angle
+
+    # /***********************
+    # * * part
+    # ***********************/
+    def cell_gradient(self, cell_magnitude, cell_angle):
+        orientation_centers = [0] * self.bin_size # 方向中心点
+        for i in range(cell_magnitude.shape[0]):
+            for j in range(cell_magnitude.shape[1]):
+                gradient_strength = cell_magnitude[i][j]
+                gradient_angle = cell_angle[i][j]
+                min_angle, max_angle, mod = self.get_closest_bins(gradient_angle)
+                orientation_centers[min_angle] += (gradient_strength * (1 - (mod / self.angle_unit)))
+                orientation_centers[max_angle] += (gradient_strength * (mod / self.angle_unit))
+        return orientation_centers
+
+    # /***********************
+    # * * part
+    # ***********************/
+    def get_closest_bins(self, gradient_angle):
+        idx = int(gradient_angle / self.angle_unit)
+        mod = gradient_angle % self.angle_unit
+        return idx, (idx + 1) % self.bin_size, mod
+
+    # /***********************
+    # * * part
+    # ***********************/
+    def render_gradient(self, image, cell_gradient):
+        cell_width = self.cell_size / 2
+        max_mag = np.array(cell_gradient).max()
+        for x in range(cell_gradient.shape[0]):
+            for y in range(cell_gradient.shape[1]):
+                cell_grad = cell_gradient[x][y]
+                cell_grad /= max_mag
+                angle = 0
+                angle_gap = self.angle_unit
+                for magnitude in cell_grad:
+                    angle_radian = math.radians(angle)
+                    x1 = int(x * self.cell_size + magnitude * cell_width * math.cos(angle_radian))
+                    y1 = int(y * self.cell_size + magnitude * cell_width * math.sin(angle_radian))
+                    x2 = int(x * self.cell_size - magnitude * cell_width * math.cos(angle_radian))
+                    y2 = int(y * self.cell_size - magnitude * cell_width * math.sin(angle_radian))
+                    cv2.line(image, (y1, x1), (y2, x2), int(255 * math.sqrt(magnitude)))
+                    angle += angle_gap
+        return image
+
+# opencv 读取图片位置，并显示
+f = "image_1.jpg"
+# /***********************
+# * * part1 代码开始位置
+# ***********************/
+img = cv2.imread(f, cv2.IMREAD_COLOR)   # 读取图片，格式为彩色
+cv2.imshow("IMREAD_COLOR", img)
+
+img = cv2.imread(f, cv2.IMREAD_GRAYSCALE)   # 读取图片，格式为灰度
+print(img)
+print(img.shape)
+cv2.imshow("IMREAD_GRAYSCALE", img)
+
+hog = hog_descriptor(img, cell_size=8, bin_size=8)
+
+vector, image = hog.extract()
+print (np.array(vector).shape)
+plt.imshow(image, cmap=plt.cm.gray)
+plt.show()
+
+# 等待按键，随后退出，销毁窗口
+k = cv2.waitKey(0)
+cv2.destroyAllWindows()
+
+cv2.waitKey(0)
+
+
+# ******************************************************************************************************** #
+
+"""
+/***********************
+* * Seventh Part
+* * code7：这是老版本，不用
 ***********************/
 """
 """
